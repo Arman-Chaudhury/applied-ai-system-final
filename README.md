@@ -113,10 +113,9 @@ Read and complete `model_card.md`:
 
 [**Model Card**](model_card.md)
 
-Write 1 to 2 paragraphs here about what you learned:
+The biggest learning moment was seeing how a recommender doesn't "understand" music at all — it just compares numbers. Defining the scoring rule forced a concrete decision: how much is a genre match worth relative to an energy match? Assigning 3 points to genre and 2 to mood felt reasonable until the adversarial tests revealed the consequence: a genre hit with completely wrong energy still outscores a near-perfect energy match in the wrong genre. That gap between "the formula makes sense in isolation" and "the formula does the right thing on real inputs" only showed up by running it — which is exactly why evaluation with diverse profiles matters more than inspecting the code.
 
-- about how recommenders turn data into predictions
-- about where bias or unfairness could show up in systems like this
+Bias in this system isn't subtle. Lofi listeners get three catalog entries to match against; jazz listeners get one. The algorithm is identical for both, but the lofi user gets better results purely because of how the dataset was assembled — not because the algorithm is smarter for them. That's the real lesson: data choices embed assumptions that compound through the scoring. A real platform with millions of songs would have the same structural issue at a larger scale: underrepresented genres produce worse recommendations, which leads to fewer plays, which produces less training signal, which keeps the recommendations worse. Fixing it requires intentional curation of the catalog, not just a better scoring function.
 
 
 ---

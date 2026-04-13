@@ -6,13 +6,21 @@
 
 ---
 
-## 2. Intended Use
+## 2. Goal / Task
 
-VibeFinder suggests up to 5 songs from a small 10-song catalog that best match a listener's current taste. It is built for classroom exploration only — not for real users. The system assumes the user can describe their mood, preferred genre, and energy level in advance, and that those preferences apply uniformly to every song being scored.
+Suggest up to 5 songs from a small 10-song catalog that best match a listener's stated genre, mood, and energy preferences.
 
 ---
 
-## 3. How the Model Works
+## 3. Intended and Non-Intended Use
+
+**Intended use:** Classroom exploration of how content-based filtering works. The system is designed for a single user who can articulate their preferences in advance.
+
+**Not intended for:** Real product deployment, users with evolving or context-dependent taste, genres absent from the catalog (hip-hop, R&B, classical, K-pop, country), or any situation where fairness across diverse listener populations matters. Hard-coded weights and a 10-song catalog make this unsuitable for production.
+
+---
+
+## 4. Algorithm Summary
 
 Every song in the catalog is described by a handful of audio traits — most importantly its genre (like pop or lofi), its mood (happy, chill, intense…), how energetic it feels on a scale from 0 to 1, and how acoustic it sounds. A listener profile captures the same four signals from the user's side: preferred genre, preferred mood, a target energy level, and whether they like acoustic sounds.
 
@@ -26,7 +34,7 @@ The maximum possible score is 8 points. After scoring all songs, the system retu
 
 ---
 
-## 4. Data
+## 5. Data
 
 The catalog contains 10 songs stored in `data/songs.csv`. Each song has: id, title, artist, genre, mood, energy (0–1), tempo_bpm, valence (musical positiveness, 0–1), danceability (0–1), and acousticness (0–1).
 
@@ -34,7 +42,7 @@ Genres represented: pop, lofi, rock, ambient, jazz, synthwave, indie pop. Moods 
 
 ---
 
-## 5. Strengths
+## 6. Strengths
 
 - Works well for pop and lofi listeners — those genres have multiple catalog entries with varied moods and energies, giving the scorer real options to differentiate.
 - The energy proximity signal means the system never gives a zero-value score, so it always finds something reasonable even when genre and mood are both wrong.
@@ -43,7 +51,7 @@ Genres represented: pop, lofi, rock, ambient, jazz, synthwave, indie pop. Moods 
 
 ---
 
-## 6. Limitations and Bias
+## 7. Observed Behavior / Biases
 
 - The catalog is tiny (10 songs). Any genre with only one representative (rock, ambient, jazz, synthwave, indie pop) is practically guaranteed to rank near the bottom for users who prefer a different genre, even if the energy and mood are perfect.
 - Tempo, valence, and danceability are stored but ignored by the scorer, so two songs in the same genre with very different "feel" can end up tied.
@@ -53,7 +61,7 @@ Genres represented: pop, lofi, rock, ambient, jazz, synthwave, indie pop. Moods 
 
 ---
 
-## 7. Evaluation
+## 8. Evaluation Process
 
 Five user profiles were tested manually, including two adversarial / edge-case profiles designed to expose weaknesses.
 
@@ -95,7 +103,7 @@ The pytest suite covers sort order and explanation output.
 
 ---
 
-## 8. Future Work
+## 9. Ideas for Improvement
 
 - Add tempo range preferences (`min_bpm`, `max_bpm`) so users who want slow ballads vs. fast workout tracks can express that.
 - Include valence and danceability in the score to capture the "upbeat vs. melancholy" axis that mood alone doesn't fully represent.
@@ -105,6 +113,6 @@ The pytest suite covers sort order and explanation output.
 
 ---
 
-## 9. Personal Reflection
+## 10. Personal Reflection
 
 Building this made the abstraction behind real recommenders concrete: Spotify's "Discover Weekly" is, at its core, the same loop — score songs, sort, return top-k — just with millions of users providing implicit feedback that refines the weights continuously. The most surprising part was how much the genre bonus (3 points out of 8) dominates: a perfect energy and mood match in the wrong genre still scores lower than a genre hit with mediocre energy. That's probably realistic, but it also means the system has almost no path to surprising a user with something outside their stated genre, which is exactly the kind of serendipity that makes a real playlist feel fresh. That tension between relevance and discovery is where human judgment — a curator deciding to break the pattern — still matters even when the model seems to be working well.
