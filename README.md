@@ -2,32 +2,48 @@
 
 ## Project Summary
 
-In this project you will build and explain a small music recommender system.
+This project builds a small content-based music recommender that mirrors how real platforms like Spotify decide what to play next. Given a catalog of 10 songs (each described by genre, mood, energy, tempo, valence, danceability, and acousticness) and a user taste profile, the system scores every song and returns the top-k matches.
 
-Your goal is to:
+Real-world recommenders rely on two main strategies:
+- **Collaborative filtering** — "users who liked what you liked also liked X" (needs many users and interaction data)
+- **Content-based filtering** — "here are songs whose audio features match your stated preferences" (works from song attributes alone)
 
-- Represent songs and a user "taste profile" as data
-- Design a scoring rule that turns that data into recommendations
-- Evaluate what your system gets right and wrong
-- Reflect on how this mirrors real world AI recommenders
-
-Replace this paragraph with your own summary of what your version does.
+This simulation uses content-based filtering because we have rich song attributes but only one user.
 
 ---
 
 ## How The System Works
 
-Explain your design in plain language.
+Real platforms like Spotify and YouTube process millions of users and hundreds of millions of songs. They connect user data (play history, skips, likes, playlists) to song data (audio features computed from the audio signal) using two main strategies: collaborative filtering identifies users with similar listening histories and recommends what those users liked next, while content-based filtering compares audio attributes of songs the user has played against the full catalog. At scale these are blended into a hybrid model. This simulation mirrors the content-based half: a `UserProfile` represents a listener's stated preferences, a `Song` stores its audio attributes, and a scoring function directly compares them to produce a ranked shortlist.
 
-Some prompts to answer:
+### Song features used
 
-- What features does each `Song` use in your system
-  - For example: genre, mood, energy, tempo
-- What information does your `UserProfile` store
-- How does your `Recommender` compute a score for each song
-- How do you choose which songs to recommend
+Each `Song` stores: `genre`, `mood`, `energy` (0–1), `tempo_bpm`, `valence` (musical positiveness, 0–1), `danceability` (0–1), and `acousticness` (0–1). The scoring rule currently uses `genre`, `mood`, `energy`, and `acousticness` — the features most directly tied to how a listener describes their taste in everyday language.
 
-You can include a simple diagram or bullet list if helpful.
+### UserProfile
+
+A `UserProfile` stores:
+- `favorite_genre` — the genre the user most often listens to
+- `favorite_mood` — the emotional atmosphere the user wants right now
+- `target_energy` — a 0–1 float representing how high-energy the user wants the music
+- `likes_acoustic` — a boolean flag for users who prefer organic, instrument-driven sounds
+
+### Scoring Rule (one song at a time)
+
+| Signal | Points | Reasoning |
+|---|---|---|
+| Genre match | +3.0 | Genre captures production style and cultural context — the strongest taste signal |
+| Mood match | +2.0 | Mood captures immediate emotional context — second strongest signal |
+| Energy proximity | 0 – 2.0 | `(1 − |song_energy − target_energy|) × 2` — continuous reward, closer = higher |
+| Acoustic bonus | +1.0 | Only awarded when `likes_acoustic=True` AND `acousticness > 0.6` |
+
+Maximum possible score: **8.0**
+
+### Ranking Rule (choosing what to recommend)
+
+After scoring every song, the system sorts them by descending score and returns the top-k. This is a greedy ranking — the highest-scored song is always first. Ties fall back to catalog order.
+
+A single score captures both binary matches (genre, mood) and a continuous proximity signal (energy), so the ranking naturally separates strong matches from partial ones.
 
 ---
 
@@ -68,23 +84,24 @@ You can add more tests in `tests/test_recommender.py`.
 
 ## Experiments You Tried
 
-Use this section to document the experiments you ran. For example:
+**Five user profiles tested** (see `src/main.py`, results captured in `model_card.md`):
+1. Pop / happy / energy 0.8 — baseline, works well
+2. Lofi / chill / energy 0.4 / acoustic — works best; data has 3 lofi songs
+3. Rock / intense / energy 0.9 — works well; only one rock song but it dominates
+4. Jazz / intense / energy 0.9 — adversarial: no intense jazz exists in catalog; two near-tied wrong answers
+5. Ambient / relaxed / energy 0.9 / acoustic — edge case: genre bonus surfaces the lowest-energy song in the catalog
 
-- What happened when you changed the weight on genre from 2.0 to 0.5
-- What happened when you added tempo or valence to the score
-- How did your system behave for different types of users
+**Weight-shift experiment** (`src/main.py`, `score_song_experimental`): Doubled energy weight (0–4 pts) and halved genre weight (1.5 pts). For the pop/happy profile, Rooftop Lights jumped from #3 to #2 and Gym Hero dropped from #2 to #3. Gym Hero's genre match had compensated for its poor energy fit (0.93 vs target 0.80); with energy worth more, that compensation disappeared. Sunrise City stayed #1 regardless.
 
 ---
 
 ## Limitations and Risks
 
-Summarize some limitations of your recommender.
-
-Examples:
-
-- It only works on a tiny catalog
-- It does not understand lyrics or language
-- It might over favor one genre or mood
+- **Genre dominance can actively mislead**: a genre match awards 3 points even when every other signal is wrong. In the ambient/high-energy edge case, the sole ambient song (energy 0.28) ranked first for a user who wanted energy 0.90.
+- **Tiny catalog creates data bias**: lofi listeners get better results not because the algorithm is smarter for them, but because the catalog happens to have more matching lofi songs.
+- **Independent additive scoring ignores interactions**: a genre match paired with a bad energy fit should arguably be worth less than a genre match where everything aligns, but the current model gives the same 3 genre points either way.
+- **No representation for several major genres**: hip-hop, R&B, classical, K-pop, and country are all absent; users with these preferences get irrelevant genre-fallback recommendations.
+- **Binary acoustic flag loses nuance**: a listener who enjoys both acoustic and electric sounds has no way to express that.
 
 You will go deeper on this in your model card.
 
