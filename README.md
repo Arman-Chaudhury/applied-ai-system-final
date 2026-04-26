@@ -205,14 +205,6 @@ Full reflection — limitations, biases, misuse risks, and AI-collaboration retr
 
 ---
 
-## Demo Walkthrough
-
-> **Loom video:** _placeholder — add link here before submission._
-
-The walkthrough demonstrates: the recommender running end-to-end on `python -m src.main`, the evaluation harness with `python -m src.evaluate`, the guardrails rejecting an out-of-range energy value, and an adversarial profile producing a low-confidence result.
-
----
-
 ## Repository Layout
 
 ```
