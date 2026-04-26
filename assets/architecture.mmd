@@ -1,0 +1,50 @@
+flowchart TD
+    subgraph Inputs
+        U[User Profile<br/>genre, mood, energy, likes_acoustic]
+        C[(songs.csv<br/>10-song catalog)]
+    end
+
+    subgraph Guardrails
+        V{validate_user_profile<br/>type + range checks<br/>known-vocab warnings}
+    end
+
+    subgraph Core["Recommender Core"]
+        L[load_songs / load_songs_as_dataclass]
+        S[score_song<br/>genre+3, mood+2,<br/>energy 0-2, acoustic+1]
+        R[Recommender.recommend_with_confidence<br/>rank top-k<br/>compute margin + overall_confidence]
+    end
+
+    subgraph Eval["Reliability / Test Harness"]
+        E[evaluator.run_eval<br/>5 cases: 3 happy-path,<br/>2 adversarial low-confidence]
+        F[format_report<br/>pass/fail + confidence summary]
+        T[pytest suite<br/>13 tests]
+    end
+
+    subgraph Outputs
+        O1[Top-k Recommendations<br/>+ explanations<br/>+ confidence]
+        O2[Eval Report<br/>pass/fail + avg confidence]
+        LOG[Structured Logs<br/>warnings + errors]
+    end
+
+    U --> V
+    V -->|raises on bad input| U
+    V -->|warns on unknown vocab| LOG
+    V --> R
+    C --> L --> R
+    R --> S
+    S --> R
+    R --> O1
+    R --> LOG
+
+    R -.invoked by.-> E
+    E --> F --> O2
+    R -.invoked by.-> T
+
+    classDef guard fill:#fde68a,stroke:#92400e,color:#000
+    classDef core fill:#bfdbfe,stroke:#1e3a8a,color:#000
+    classDef eval fill:#bbf7d0,stroke:#065f46,color:#000
+    classDef out fill:#e9d5ff,stroke:#581c87,color:#000
+    class V guard
+    class L,S,R core
+    class E,F,T eval
+    class O1,O2,LOG out
