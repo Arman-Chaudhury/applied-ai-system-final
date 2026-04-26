@@ -1,227 +1,238 @@
-# 🎵 Music Recommender Simulation
+# Applied AI System — VibeFinder, with Reliability Harness
 
-## Project Summary
-
-This project builds a small content-based music recommender that mirrors how real platforms like Spotify decide what to play next. Given a catalog of 10 songs (each described by genre, mood, energy, tempo, valence, danceability, and acousticness) and a user taste profile, the system scores every song and returns the top-k matches.
-
-Real-world recommenders rely on two main strategies:
-- **Collaborative filtering** — "users who liked what you liked also liked X" (needs many users and interaction data)
-- **Content-based filtering** — "here are songs whose audio features match your stated preferences" (works from song attributes alone)
-
-This simulation uses content-based filtering because we have rich song attributes but only one user.
+> **Base project:** This system is a direct extension of the **Music Recommender Simulation** built in Module 3 (`ai110-module3show-musicrecommendersimulation-starter`). The original project implemented a content-based scoring rule that ranked a 10-song catalog against a single user's stated taste. The original goal was to mirror, at a small scale, how Spotify-style recommenders combine genre, mood, and audio features into a ranked shortlist. This applied-AI extension keeps that core and wraps it in a **reliability and evaluation system** so the recommender's behavior can be tested, measured, and trusted.
 
 ---
 
-## How The System Works
+## Title and Summary
 
-Real platforms like Spotify and YouTube process millions of users and hundreds of millions of songs. They connect user data (play history, skips, likes, playlists) to song data (audio features computed from the audio signal) using two main strategies: collaborative filtering identifies users with similar listening histories and recommends what those users liked next, while content-based filtering compares audio attributes of songs the user has played against the full catalog. At scale these are blended into a hybrid model. This simulation mirrors the content-based half: a `UserProfile` represents a listener's stated preferences, a `Song` stores its audio attributes, and a scoring function directly compares them to produce a ranked shortlist.
+**VibeFinder 1.1** — a transparent, content-based music recommender with input guardrails, confidence scoring, and an automated evaluation harness.
 
-### Song features used
-
-Each `Song` stores: `genre`, `mood`, `energy` (0–1), `tempo_bpm`, `valence` (musical positiveness, 0–1), `danceability` (0–1), and `acousticness` (0–1). The scoring rule currently uses `genre`, `mood`, `energy`, and `acousticness` — the features most directly tied to how a listener describes their taste in everyday language.
-
-### UserProfile
-
-A `UserProfile` stores:
-- `favorite_genre` — the genre the user most often listens to
-- `favorite_mood` — the emotional atmosphere the user wants right now
-- `target_energy` — a 0–1 float representing how high-energy the user wants the music
-- `likes_acoustic` — a boolean flag for users who prefer organic, instrument-driven sounds
-
-### Scoring Rule (one song at a time)
-
-| Signal | Points | Reasoning |
-|---|---|---|
-| Genre match | +3.0 | Genre captures production style and cultural context — the strongest taste signal |
-| Mood match | +2.0 | Mood captures immediate emotional context — second strongest signal |
-| Energy proximity | 0 – 2.0 | `(1 − |song_energy − target_energy|) × 2` — continuous reward, closer = higher |
-| Acoustic bonus | +1.0 | Only awarded when `likes_acoustic=True` AND `acousticness > 0.6` |
-
-Maximum possible score: **8.0**
-
-### Ranking Rule (choosing what to recommend)
-
-After scoring every song, the system sorts them by descending score and returns the top-k. This is a greedy ranking — the highest-scored song is always first. Ties fall back to catalog order.
-
-A single score captures both binary matches (genre, mood) and a continuous proximity signal (energy), so the ranking naturally separates strong matches from partial ones.
+The point of this project is not just to recommend songs — it is to make the recommender's reliability **observable**. Every recommendation now carries a confidence score derived from the top match's strength and its margin over the second-best song. A standing evaluation suite exercises the system against five fixed user profiles (three "happy path" cases the system should nail; two adversarial cases where the system should report low confidence rather than pretending to know). This is the difference between an AI that *seems to work* and one that *can prove it works*.
 
 ---
 
-## Getting Started
+## Architecture Overview
 
-### Setup
+The system has four layers: **input guardrails** validate user profiles before they reach the model; the **recommender core** scores and ranks; the **evaluation harness** runs the recommender against expected outcomes and emits a pass/fail + confidence report; and **structured logs** capture warnings and errors throughout.
 
-1. Create a virtual environment (optional but recommended):
+```mermaid
+flowchart TD
+    subgraph Inputs
+        U[User Profile<br/>genre, mood, energy, likes_acoustic]
+        C[(songs.csv<br/>10-song catalog)]
+    end
 
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate      # Mac or Linux
-   .venv\Scripts\activate         # Windows
+    subgraph Guardrails
+        V{validate_user_profile<br/>type + range checks<br/>known-vocab warnings}
+    end
 
-2. Install dependencies
+    subgraph Core["Recommender Core"]
+        L[load_songs / load_songs_as_dataclass]
+        S[score_song<br/>genre+3, mood+2,<br/>energy 0-2, acoustic+1]
+        R[Recommender.recommend_with_confidence<br/>rank top-k<br/>compute margin + overall_confidence]
+    end
+
+    subgraph Eval["Reliability / Test Harness"]
+        E[evaluator.run_eval<br/>5 cases: 3 happy-path,<br/>2 adversarial low-confidence]
+        F[format_report<br/>pass/fail + confidence summary]
+        T[pytest suite<br/>13 tests]
+    end
+
+    subgraph Outputs
+        O1[Top-k Recommendations<br/>+ explanations<br/>+ confidence]
+        O2[Eval Report<br/>pass/fail + avg confidence]
+        LOG[Structured Logs<br/>warnings + errors]
+    end
+
+    U --> V
+    V -->|raises on bad input| U
+    V -->|warns on unknown vocab| LOG
+    V --> R
+    C --> L --> R
+    R --> S
+    S --> R
+    R --> O1
+    R --> LOG
+
+    R -.invoked by.-> E
+    E --> F --> O2
+    R -.invoked by.-> T
+```
+
+> Mermaid source is also stored at [`assets/architecture.mmd`](assets/architecture.mmd). GitHub renders the diagram inline; no PNG export is required.
+
+**Where humans / testing check the AI:** the evaluation harness (`src/evaluator.py`) is the formal check — it asserts both *what the system recommends* and *how confident it claims to be*. The pytest suite (`tests/`) is the second check, exercising guardrails and edge cases. A human reviewer reads the eval report after every change to confirm adversarial cases still register as low-confidence rather than slipping into false certainty.
+
+---
+
+## Setup Instructions
 
 ```bash
+# 1. Clone
+git clone https://github.com/Arman-Chaudhury/applied-ai-system-final.git
+cd applied-ai-system-final
+
+# 2. Create a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate          # macOS / Linux
+# .venv\Scripts\activate           # Windows
+
+# 3. Install dependencies
 pip install -r requirements.txt
-```
 
-3. Run the app:
-
-```bash
+# 4. Run the recommender against the five built-in user profiles
 python -m src.main
+
+# 5. Run the evaluation harness (pass/fail + confidence report)
+python -m src.evaluate
+
+# 6. Run the test suite
+pytest -v
 ```
 
-### Running Tests
-
-Run the starter tests with:
-
-```bash
-pytest
-```
-
-You can add more tests in `tests/test_recommender.py`.
+The recommender depends only on the Python standard library; `pandas` and `streamlit` are listed in `requirements.txt` for compatibility with the original Module 3 project but are not required by the AI system.
 
 ---
 
-## Experiments You Tried
+## Sample Interactions
 
-**Five user profiles tested** (see `src/main.py`, results captured in `model_card.md`):
-1. Pop / happy / energy 0.8 — baseline, works well
-2. Lofi / chill / energy 0.4 / acoustic — works best; data has 3 lofi songs
-3. Rock / intense / energy 0.9 — works well; only one rock song but it dominates
-4. Jazz / intense / energy 0.9 — adversarial: no intense jazz exists in catalog; two near-tied wrong answers
-5. Ambient / relaxed / energy 0.9 / acoustic — edge case: genre bonus surfaces the lowest-energy song in the catalog
+### Sample 1 — Strong match (`pop / happy / 0.8`)
 
-**Weight-shift experiment** (`src/main.py`, `score_song_experimental`): Doubled energy weight (0–4 pts) and halved genre weight (1.5 pts). For the pop/happy profile, Rooftop Lights jumped from #3 to #2 and Gym Hero dropped from #2 to #3. Gym Hero's genre match had compensated for its poor energy fit (0.93 vs target 0.80); with energy worth more, that compensation disappeared. Sunrise City stayed #1 regardless.
+```
+Input:  UserProfile(favorite_genre="pop", favorite_mood="happy",
+                    target_energy=0.8, likes_acoustic=False)
+
+Top recommendation:  Sunrise City by Neon Echo
+Score:               6.96 / 8.00
+Margin over #2:      2.22
+Overall confidence:  0.69
+Reasons:             genre matches (pop), mood matches (happy),
+                     energy closely matches (0.82)
+```
+
+The system recommends with high confidence because all three primary signals align and the runner-up is clearly behind.
+
+### Sample 2 — Adversarial mismatch (`jazz / intense / 0.9`)
+
+```
+Input:  UserProfile(favorite_genre="jazz", favorite_mood="intense",
+                    target_energy=0.9, likes_acoustic=False)
+
+Top recommendation:  Storm Runner by Voltline   (rock, not jazz)
+Score:               3.98 / 8.00
+Margin over #2:      0.04
+Overall confidence:  0.35
+```
+
+No song in the catalog is both jazz and intense. The system still returns a top pick — but its confidence drops to 0.35, and the top two contenders are nearly tied (margin = 0.04). This is exactly the behavior the evaluation harness asserts: the system must *know it does not know*.
+
+### Sample 3 — Guardrail rejection (invalid input)
+
+```python
+>>> from src.recommender import validate_user_profile, ProfileValidationError
+>>> validate_user_profile(
+...     {"genre": "pop", "mood": "happy", "energy": 1.7, "likes_acoustic": False}
+... )
+ProfileValidationError: energy must be within [0, 1], got 1.7
+
+>>> validate_user_profile(
+...     {"genre": "k-pop", "mood": "happy", "energy": 0.6, "likes_acoustic": False}
+... )
+["genre 'k-pop' not in catalog vocabulary [...] — recommendations will rely on mood + energy only"]
+```
+
+Hard violations (out-of-range numbers, wrong types) raise immediately. Soft violations (genres or moods the catalog has never seen) come back as warnings, get logged, and ride along with the recommendation result so the caller can decide what to do.
 
 ---
 
-## Limitations and Risks
+## Design Decisions
 
-- **Genre dominance can actively mislead**: a genre match awards 3 points even when every other signal is wrong. In the ambient/high-energy edge case, the sole ambient song (energy 0.28) ranked first for a user who wanted energy 0.90.
-- **Tiny catalog creates data bias**: lofi listeners get better results not because the algorithm is smarter for them, but because the catalog happens to have more matching lofi songs.
-- **Independent additive scoring ignores interactions**: a genre match paired with a bad energy fit should arguably be worth less than a genre match where everything aligns, but the current model gives the same 3 genre points either way.
-- **No representation for several major genres**: hip-hop, R&B, classical, K-pop, and country are all absent; users with these preferences get irrelevant genre-fallback recommendations.
-- **Binary acoustic flag loses nuance**: a listener who enjoys both acoustic and electric sounds has no way to express that.
+- **Reliability as the primary AI feature, not a side effect.** A scoring rule alone is just arithmetic. Wrapping it in a guardrail + confidence + evaluation layer is what makes this an *applied AI system* — every recommendation can be inspected, the system can decline to be confident, and a single command (`python -m src.evaluate`) tells you whether behavior has regressed.
+- **Confidence = 0.7 × top-score-ratio + 0.3 × normalized-margin.** A pure top-score metric would call the adversarial cases "confident" because the math is doing its job. A pure margin metric would call any close-fought decision "uncertain" even when both contenders are great. Blending the two penalizes the failure mode that actually matters: a low absolute score paired with no separation from the runner-up, which is the signature of an adversarial input.
+- **Hard vs. soft guardrails.** Out-of-range numbers and wrong types block execution immediately because they indicate bugs upstream. Unknown genres or moods don't block — the catalog vocabulary is small and arbitrary, so a real user might reasonably ask for "k-pop" or "drill"; we just record a warning and let the energy/acoustic signals carry the decision.
+- **Backward compatibility preserved.** `Recommender.recommend()`, `recommend_songs()`, and `score_song()` keep their original signatures so the Module 3 demo (`src/main.py`) continues to run unchanged. The new behavior lives behind `recommend_with_confidence()`.
+- **Mermaid embedded in the README, not exported to PNG.** GitHub renders Mermaid natively; exporting to PNG would add a manual step that drifts out of date the moment the architecture changes. The `.mmd` source is also stored in `/assets` for editors that don't render Mermaid inline.
+- **Trade-off accepted: the catalog stays at 10 songs.** Expanding the catalog would mask the genre-bias problem rather than solve it. Keeping the catalog small keeps the failure modes visible and gives the evaluation harness real adversarial cases to defend against.
 
-You will go deeper on this in your model card.
+---
+
+## Testing Summary
+
+**Automated coverage: 13 pytest tests across two files.**
+
+```
+tests/test_recommender.py — 8 tests
+  - sort order, explanation output (carried over from Module 3)
+  - confidence shape, margin math, unknown-genre warning
+  - guardrails: out-of-range energy, wrong-type likes_acoustic, missing keys
+  - rejects k=0
+tests/test_evaluator.py — 5 tests
+  - full default suite passes against the real catalog
+  - strong-match case has confidence > 0.6
+  - adversarial case has confidence < 0.55
+  - report formatting includes the SUMMARY line
+  - default suite covers both happy-path and adversarial paths
+```
+
+**Evaluation suite: 5 cases, 5 passing, average overall confidence 0.58.**
+
+| Case | Top pick | Score | Confidence | Verdict |
+|---|---|---|---|---|
+| pop / happy / 0.8 | Sunrise City | 6.96 | 0.69 | PASS — strong match, clear margin |
+| lofi / chill / 0.4 / acoustic | Midnight Coding | 7.96 | 0.70 | PASS — high score, narrow margin pulls confidence |
+| rock / intense / 0.9 | Storm Runner | 6.98 | 0.72 | PASS — only rock song, perfect mood + energy |
+| jazz / intense / 0.9 (adversarial) | Storm Runner | 3.98 | 0.35 | PASS — system correctly reports low confidence |
+| ambient / relaxed / 0.9 / acoustic (adversarial) | Spacewalk Thoughts | 4.76 | 0.45 | PASS — energy mismatch surfaces as low confidence |
+
+**What worked:** the confidence metric cleanly separated good answers from forced ones. The two adversarial cases dropped to 0.35 and 0.45 even though the recommender still returned a top pick — that is the entire point.
+
+**What didn't:** the lofi case scored 7.96 / 8.00 (almost perfect) but its overall confidence came out at only ~0.70 because Library Rain trails Midnight Coding by just 0.06 points. The blended formula treats "two great answers neck and neck" as low-confidence, which is technically right but reads as a false alarm. A future iteration should treat margin differently when both contenders cross a quality threshold.
+
+**What I learned:** evaluation isn't an add-on — it is what turns a scoring rule into a system you can ship. Without the harness, every code change would mean re-running `main.py` by eye and trusting that nothing regressed. With it, the next person to touch this code gets a one-line answer.
 
 ---
 
 ## Reflection
 
-Read and complete `model_card.md`:
+The biggest lesson from extending this project was that *making AI more reliable is mostly a software-engineering problem, not a modeling problem*. The scoring rule didn't change between Module 3 and this submission. What changed was the surface area around it: guardrails on the input, confidence on the output, a harness that asserts behavior, and logs that explain it. Each of those is a few dozen lines of plain Python — no neural network, no fine-tuning — and yet the overall system is dramatically more trustworthy than the original.
 
-[**Model Card**](model_card.md)
+This project also forced a sharper view of what "confidence" should mean. My first instinct was `confidence = top_score / max_score`, but that gave the adversarial cases scores around 0.5 — too high to be useful. Switching to the blended formula (top-score weight + margin weight) was the moment the system started behaving like something that *knows when it doesn't know*. That distinction — between "produces an output" and "produces an output and reports its uncertainty" — is what separates a demo from a system you'd let near a real user.
 
-The biggest learning moment was seeing how a recommender doesn't "understand" music at all — it just compares numbers. Defining the scoring rule forced a concrete decision: how much is a genre match worth relative to an energy match? Assigning 3 points to genre and 2 to mood felt reasonable until the adversarial tests revealed the consequence: a genre hit with completely wrong energy still outscores a near-perfect energy match in the wrong genre. That gap between "the formula makes sense in isolation" and "the formula does the right thing on real inputs" only showed up by running it — which is exactly why evaluation with diverse profiles matters more than inspecting the code.
+Where human judgment still matters: deciding which user profiles count as "adversarial enough" to test against, picking the confidence thresholds (the numbers in `EvalCase`), and reading the eval report after every change. The harness automates the check, but it doesn't decide what to check for.
 
-Bias in this system isn't subtle. Lofi listeners get three catalog entries to match against; jazz listeners get one. The algorithm is identical for both, but the lofi user gets better results purely because of how the dataset was assembled — not because the algorithm is smarter for them. That's the real lesson: data choices embed assumptions that compound through the scoring. A real platform with millions of songs would have the same structural issue at a larger scale: underrepresented genres produce worse recommendations, which leads to fewer plays, which produces less training signal, which keeps the recommendations worse. Fixing it requires intentional curation of the catalog, not just a better scoring function.
-
-
----
-
-## 7. `model_card_template.md`
-
-Combines reflection and model card framing from the Module 3 guidance. :contentReference[oaicite:2]{index=2}  
-
-```markdown
-# 🎧 Model Card - Music Recommender Simulation
-
-## 1. Model Name
-
-Give your recommender a name, for example:
-
-> VibeFinder 1.0
+Full reflection — limitations, biases, misuse risks, and AI-collaboration retrospective — lives in [`model_card.md`](model_card.md).
 
 ---
 
-## 2. Intended Use
+## Demo Walkthrough
 
-- What is this system trying to do
-- Who is it for
+> **Loom video:** _placeholder — add link here before submission._
 
-Example:
-
-> This model suggests 3 to 5 songs from a small catalog based on a user's preferred genre, mood, and energy level. It is for classroom exploration only, not for real users.
+The walkthrough demonstrates: the recommender running end-to-end on `python -m src.main`, the evaluation harness with `python -m src.evaluate`, the guardrails rejecting an out-of-range energy value, and an adversarial profile producing a low-confidence result.
 
 ---
 
-## 3. How It Works (Short Explanation)
+## Repository Layout
 
-Describe your scoring logic in plain language.
-
-- What features of each song does it consider
-- What information about the user does it use
-- How does it turn those into a number
-
-Try to avoid code in this section, treat it like an explanation to a non programmer.
-
----
-
-## 4. Data
-
-Describe your dataset.
-
-- How many songs are in `data/songs.csv`
-- Did you add or remove any songs
-- What kinds of genres or moods are represented
-- Whose taste does this data mostly reflect
-
----
-
-## 5. Strengths
-
-Where does your recommender work well
-
-You can think about:
-- Situations where the top results "felt right"
-- Particular user profiles it served well
-- Simplicity or transparency benefits
-
----
-
-## 6. Limitations and Bias
-
-Where does your recommender struggle
-
-Some prompts:
-- Does it ignore some genres or moods
-- Does it treat all users as if they have the same taste shape
-- Is it biased toward high energy or one genre by default
-- How could this be unfair if used in a real product
-
----
-
-## 7. Evaluation
-
-How did you check your system
-
-Examples:
-- You tried multiple user profiles and wrote down whether the results matched your expectations
-- You compared your simulation to what a real app like Spotify or YouTube tends to recommend
-- You wrote tests for your scoring logic
-
-You do not need a numeric metric, but if you used one, explain what it measures.
-
----
-
-## 8. Future Work
-
-If you had more time, how would you improve this recommender
-
-Examples:
-
-- Add support for multiple users and "group vibe" recommendations
-- Balance diversity of songs instead of always picking the closest match
-- Use more features, like tempo ranges or lyric themes
-
----
-
-## 9. Personal Reflection
-
-A few sentences about what you learned:
-
-- What surprised you about how your system behaved
-- How did building this change how you think about real music recommenders
-- Where do you think human judgment still matters, even if the model seems "smart"
-
+```
+applied-ai-system-final/
+├── README.md                # this file
+├── model_card.md            # reflections on limitations, bias, misuse, AI collaboration
+├── reflection.md            # original Module 3 reflection (preserved for context)
+├── requirements.txt
+├── assets/
+│   └── architecture.mmd     # Mermaid source for the system diagram
+├── data/
+│   └── songs.csv            # 10-song catalog
+├── src/
+│   ├── __init__.py
+│   ├── main.py              # original Module 3 demo (5 profiles + weight-shift experiment)
+│   ├── recommender.py       # core scoring + guardrails + confidence
+│   ├── evaluator.py         # evaluation harness (cases, runner, report)
+│   └── evaluate.py          # CLI entry point: `python -m src.evaluate`
+└── tests/
+    ├── __init__.py
+    ├── test_recommender.py
+    └── test_evaluator.py
+```

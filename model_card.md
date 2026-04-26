@@ -116,3 +116,43 @@ The pytest suite covers sort order and explanation output.
 ## 10. Personal Reflection
 
 Building this made the abstraction behind real recommenders concrete: Spotify's "Discover Weekly" is, at its core, the same loop — score songs, sort, return top-k — just with millions of users providing implicit feedback that refines the weights continuously. The most surprising part was how much the genre bonus (3 points out of 8) dominates: a perfect energy and mood match in the wrong genre still scores lower than a genre hit with mediocre energy. That's probably realistic, but it also means the system has almost no path to surprising a user with something outside their stated genre, which is exactly the kind of serendipity that makes a real playlist feel fresh. That tension between relevance and discovery is where human judgment — a curator deciding to break the pattern — still matters even when the model seems to be working well.
+
+---
+
+## 11. Applied-AI Extension: Reliability Reflection
+
+This section answers the reflection prompts required by the Module 5 applied-AI rubric. It extends — but does not replace — the original Module 3 reflection above.
+
+### 11.1 Limitations and Biases in the System
+
+The reliability layer doesn't fix the original biases — it makes them visible.
+
+- **Catalog bias is now measurable rather than implicit.** The 10-song catalog over-represents lofi (3 songs) and under-represents jazz, rock, ambient, synthwave, and indie pop (1 song each). The evaluation harness exposes this directly: lofi profiles produce confidences > 0.65 while jazz/ambient profiles can't break 0.55 even when the user's preferences are reasonable. The bias was always there; the harness just stopped letting us pretend it wasn't.
+- **The confidence metric itself encodes a value judgment.** I picked 0.7 × top-score + 0.3 × normalized-margin. A different choice (say, pure top-score) would change which adversarial cases register as "low confidence." There is no objectively correct formula here — the metric is a statement about what kinds of failure I want to be loud about.
+- **Guardrails only check what I told them to check.** The validator catches type errors and out-of-range numbers, but it can't catch a user who sincerely asks for "happy intense ambient at energy 0.9" — a coherent-looking request the catalog cannot satisfy. That ends up as low confidence, not as a rejection. A more mature system would also offer a "no good match found" response instead of always returning *something*.
+- **Vocabulary mismatch is a soft warning, not a hard error.** A user requesting "k-pop" gets a warning logged and a recommendation derived from mood + energy alone. That is a deliberate design choice (real users don't speak in catalog vocabulary) but it does mean the system silently degrades to a weaker scoring rule when the genre is unknown — and the user only notices if they read the warnings.
+
+### 11.2 Could It Be Misused, and How Would I Prevent That?
+
+The misuse risk is low — this is a 10-song toy recommender — but the architecture would scale to misuse if deployed naively:
+
+- **Manipulating recommendations by editing `songs.csv`.** Whoever controls the catalog controls the output. In a real product this would be a content-policy and access-control problem, not a model problem. Mitigation: treat the catalog as a versioned, audited input rather than a config file; require code review for changes; log catalog hashes alongside recommendations so a misranking can be traced back to the data state at the time.
+- **False precision in the confidence number.** A user (or a downstream system) might read `confidence = 0.72` as a probability and act on it. It is not a probability — it is a heuristic. Mitigation: in the README and docstrings, document confidence as a *relative reliability signal* with no probabilistic interpretation, and never expose it as a percentage in user-facing UI.
+- **Genre dominance as soft demographic steering.** If the catalog over-represents one cultural style, every user — regardless of stated preference — gets pulled toward that style as a fallback. At scale this is how recommenders entrench existing taste hierarchies. Mitigation here is fundamentally human: the catalog must be curated by someone whose job is to balance representation, not by the engineer optimizing the score.
+
+### 11.3 What Surprised Me While Testing Reliability
+
+Three things genuinely surprised me:
+
+1. **The lofi case dragged confidence down despite a near-perfect top score (7.96 / 8.00).** Two great answers separated by 0.06 points produced an overall confidence of ~0.70 — barely above the failure threshold. That's the formula working as intended, but it taught me that "reliability" is multi-dimensional: a system can be confident in *what is in its top-k* while genuinely uncertain about *the order within it*, and a single confidence number can't express both.
+2. **The adversarial jazz case scored 3.98 — only marginally below the threshold.** I expected adversarial inputs to produce dramatically low scores. Instead they produce middling scores with tiny margins, which is a different (and harder to spot) failure shape. If I had only watched the top score, I would have called the system fine.
+3. **Most "improvements" I tried during development made some other case worse.** Lowering the genre weight helped the ambient adversarial case but pushed the strong rock match out of the top spot. That's the bias-variance trade-off in miniature, and it's the reason a fixed evaluation suite matters: without it, you only see the case you happened to be looking at.
+
+### 11.4 AI Collaboration Retrospective
+
+I worked with an AI coding assistant throughout this extension. Two specific moments stand out:
+
+- **One genuinely helpful suggestion.** When I described the reliability goal, the assistant proposed splitting confidence into a *blended* metric (top-score + margin) rather than picking one axis. I had defaulted to `score / max_score`. The blended version is what made the adversarial cases register as low-confidence — the original metric would have called them ~0.5, which is too high to be a useful signal. That single design suggestion changed how the whole evaluation suite behaves.
+- **One flawed suggestion.** Earlier, the assistant proposed setting `confidence_above = 0.7` for the lofi case based on the high top score (7.96/8.00). I accepted it without checking the math. The actual computed confidence is ~0.698 — just barely below 0.7 — because the margin between Midnight Coding and Library Rain is only 0.06 points. The test would have failed on the very first run. I caught it by walking through the formula by hand before running pytest, and lowered the threshold to 0.65. The lesson: AI suggestions about *what numbers to assert* require the same scrutiny as suggestions about *what code to write*. Plausibility ≠ correctness, especially with thresholds that look round and reasonable.
+
+The broader pattern: the AI was strongest at proposing structure (the blended confidence metric, the guardrail/core/eval/output layering, the evaluation case shape) and weakest at numeric judgment (specific thresholds, specific weights). I came away trusting it more for architecture and less for arithmetic.
